@@ -1,0 +1,77 @@
+#Notes:
+#Erasure notes for 17: https://docs.ceph.com/en/nautilus/rados/operations/erasure-code-clay/
+#Journal Config: https://docs.ceph.com/en/quincy/rados/configuration/journal-ref/
+#Common commands: https://tracker.ceph.com/projects/ceph/wiki/10_Commands_Every_Ceph_Administrator_Should_Know
+#Striping info: https://docs.ceph.com/en/quincy/dev/file-striping/
+
+#Change replication to OSD
+#https://stackoverflow.com/questions/63456581/1-pg-undersized-health-warn-in-rook-ceph-on-single-node-clusterminikube
+#ceph osd crush rule create-replicated replicated_rule_osd default osd
+#ceph osd pool set .rgw.root crush_rule replicated_rule_osd
+#ceph osd pool set default.rgw.log crush_rule replicated_rule_osd
+
+ceph osd pool set erasure-code-profile set
+
+
+
+#Get logs:
+#On node:
+#apt install cephadm
+#cephadm logs --name rgw.rgw-data01.cephdata01.wecntb
+
+#Install docker and docker-compose
+#InstallDocker
+#sudo apt-get remove -y docker docker-engine docker.io containerd runc
+#sudo apt-get update
+#sudo apt-get install -y ca-certificates curl gnupg lsb-release
+#sudo mkdir -p /etc/apt/keyrings
+#curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+#echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+#sudo apt-get update
+#sudo apt-get install docker-ce docker-ce-cli containerd.io docker-compose-plugin docker-compose
+#sudo docker run hello-world
+
+#Each node will need:
+#InstallDocker
+sudo apt update
+sudo apt upgrade -y
+sudo apt install -y chrony net-tools iotop nmon htop mlocate smartmontools attr
+#sudo apt install -y ceph-common
+
+sudo updatedb
+sudo chronyd -q 'server ntp.ubuntu.com iburst'
+sudo systemctl start chronyd
+sudo systemctl enable chronyd
+
+nano /etc/hostname
+hostname $(cat /etc/hostname)
+
+#docker network create --driver bridge ceph-cluster-net
+
+#podman pull quay.io/ceph/ceph:v17.2.0
+#docker pull quay.io/ceph/ceph:v17.2.0
+
+#cd to storage path for scripts.
+curl --silent --remote-name --location https://github.com/ceph/ceph/raw/quincy/src/cephadm/cephadm
+chmod +x cephadm
+
+##Not supported on Ubuntu 18.04: (See: https://ubuntu.com/ceph/docs/supported-ceph-versions)
+sudo ./cephadm add-repo --release quincy
+#sudo ./cephadm add-repo --release octopus
+sudo apt update
+#sudo ./cephadm install
+
+
+#ceph-deploy
+cephadm bootstrap --mon-ip 192.168.10.52 --allow-fqdn-hostname
+
+
+#Allow for single host mode:
+#echo '        osd crush chooseleaf type = 0' >> /etc/ceph/ceph.conf
+#ceph osd crush rule dump replicated_rule
+#ceph osd crush rm replicated_rule
+
+systemctl list-units --type=service | grep ceph | tr -s ' ' | cut -d ' ' -f 2 | sudo xargs systemctl restart
+
+
+
