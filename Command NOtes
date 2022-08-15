@@ -1,0 +1,460 @@
+#--------  Deploy MDS from ceph-deploy if you haven't --------
+# ceph-deploy mds create {host-name}[:{daemon-name}] [{host-name}[:{daemon-name}] ...]
+#
+
+# Recovery from full meta data pool.
+### DANGER ###
+# https://docs.ceph.com/en/latest/cephfs/disaster-recovery-experts/
+cephfs-data-scan scan_links
+
+cephfs-journal-tool --rank=CephFS:all journal export backup.bin
+cephfs-table-tool all reset session
+ceph fs reset CephFS --yes-i-really-mean-it
+
+
+# Session table
+cephfs-table-tool 0 reset session
+# SnapServer
+cephfs-table-tool 0 reset snap
+# InoTable
+cephfs-table-tool 0 reset inode
+# Journal
+cephfs-journal-tool --rank=0 journal reset
+# Root inodes ("/" and MDS directory)
+cephfs-data-scan init
+cephfs-data-scan scan_extents <data pool>
+cephfs-data-scan scan_inodes <data pool>
+cephfs-data-scan scan_links
+
+### DANGER ###
+
+
+#Settings:
+#allow_ec_overwrites
+
+#We need a root FS, and a pool for that.  It will never go away!  Name it wisley.
+#We will add additional polls for each "folder" that can be re-assigned later.
+
+#Setup data classes:
+ceph osd crush rule create-replicated BasicRep-ByOSD default osd
+ceph osd crush rule create-replicated BasicRep-ByOSD-SSD default osd ssd
+ceph osd erasure-code-profile set Erasure-D3F2 crush-failure-domain=osd k=3 m=2 plugin=jerasure technique=reed_sol_van crush-device-class=hdd
+ceph osd erasure-code-profile set Erasure-D7F3 crush-failure-domain=osd k=7 m=3 plugin=jerasure technique=reed_sol_van crush-device-class=hdd
+
+#Page Group Sizes
+## WARNING ##
+#Don't set these too high!  It can't be decreased later!
+#You there is a soft limit to the number of pg's per OSD of 250!
+#Because of this, you should balance the performance gains to this number!
+#Helper:
+#  https://old.ceph.com/pgcalc/
+#Recomended math for best performance and OSD leveling:
+# (OSDs * 100 [!50-100!]) / Pools Data Width [Replication factor or K+N]
+#The result should always be rounded up to the nearest power of !two!.
+# 6 SSDs * 3x Replication * 50 = 900,   Rounds up to !1024!  or ~171 pg's per OSD
+# 6 SSDs * 2x Replication * 100 = 1200, Rounds up to !4096!  or !!! ~682 !!! pg's per, OSD See above!
+# 6 SSDs * 2x Replication * 50 = 600,   Rounds up to !1024!
+
+# 12 HDDs * 5 [3+2] Width * 50 = 3000,  Rounds up to !4096!  or !!! ~341 !!!  pg's per OSD
+# 12 HDDs * 5 [3+2] Width * 25 = 1500,  Rounds up to !4096!  or ~170  pg's per OSD
+
+# 14 HDDs * 10 [7+3] Width * 50 = 7000,  Rounds up to !4096!  or !!! ~341 !!!  pg's per OSD
+# 14 HDDs * 10 [7+3] Width * 25 = 3500,  Rounds up to !4096!  or !!# ~293 #!!  pg's per OSD
+
+PGsMeta=8
+PGsCache=8
+PGsData=16
+
+
+#Change some defaults to make them happy.
+ceph osd pool set ".mgr" crush_rule BasicRep-ByOSD
+
+# SSD Only
+#StorageProfile=BasicRep-ByOSD-SSD
+#PoolName=BlockDevices-SSD
+#ceph osd pool create $PoolName replicated $StorageProfile
+#ceph osd pool set $PoolName min_size $CacheMinSize
+#ceph osd pool set $PoolName size $CacheTargetSize
+
+
+StorageProfile=Erasure-D3F2
+CacheProfile=BasicRep-ByOSD-SSD-Backups
+PoolName=BlockDevices-Test
+#PoolMetaName=$PoolName-Meta
+PoolWriteCacheName=$PoolName-WriteCache
+#CephFSName=BlockDevices
+
+
+StorageProfile=Erasure-D3F2
+CacheProfile=BasicRep-ByOSD-SSD
+CephFSName=CephFS
+PoolName=$CephFSName-Data
+PoolMetaName=$CephFSName-Meta
+PoolWriteCacheName=$CephFSName-WriteCache
+
+
+
+
+#ceph osd pool set <poolname> size <num-replicas>
+
+
+#Caching settings:
+#CacheTargetSize=3
+CacheTargetSize=2
+CacheMinSize=2
+
+#Cache_max_bytes=42949672960              #40GB
+#Cache_max_bytes=34359738368              #32GB
+#Cache_max_bytes=21474836480              #20GB
+#Cache_max_bytes=10737418240              #10GB
+Cache_max_bytes=5368709120        #5GB
+
+#Cache_target_max_bytes=10737418240        #10GB
+#Cache_target_max_bytes=5368709120        #5GB
+Cache_target_max_bytes=1073741824        #1GB
+#Cache_target_max_bytes=838860800         #800MBs
+Cache_target_max_objects=1024           #Should be a ^2 for striping.
+
+Cache_target_dirty_ratio=0.2
+Cache_target_dirty_high_ratio=0.5
+Cache_target_full_ratio=0.6
+
+Cache_min_flush_age=3000
+Cache_min_evict_age=3000
+
+CompressionMode=aggressive
+#none, passive, aggressive, force
+
+CompressionAlgorithm=zstd
+#lz4, snappy, zlib, zstd
+
+CompressionRequired=.90
+#
+
+
+
+#Data Pool
+ceph osd pool create $PoolName erasure $StorageProfile
+ceph osd pool set $PoolName compression_algorithm $CompressionAlgorithm
+ceph osd pool set $PoolName compression_mode $CompressionMode
+ceph osd pool set $PoolName compression_required_ratio $CompressionRequired
+#ceph osd pool set $PoolNare compression_min_blob_size 0
+
+#Meta Pool
+ceph osd pool create $PoolMetaName replication $StorageProfile
+ceph osd pool create $PoolMetaName $CacheProfile
+ceph osd pool set $PoolMetaName min_size $CacheMinSize
+ceph osd pool set $PoolMetaName size $CacheTargetSize
+
+
+#Cache Pool
+#ceph osd pool set $PoolWriteCacheName cache_min_evict_age $Cache_min_evict_age
+#ceph osd pool set $PoolWriteCacheName cache_target_dirty_ratio $Cache_target_dirty_ratio
+
+ceph osd pool create $PoolWriteCacheName $CacheProfile
+ceph osd pool set $PoolWriteCacheName min_size $CacheMinSize
+ceph osd pool set $PoolWriteCacheName size $CacheTargetSize
+ceph osd pool set-quota $PoolWriteCacheName max_bytes $Cache_max_bytes
+
+#Create tiers
+ceph osd tier add $PoolName $PoolWriteCacheName
+ceph osd tier set-overlay $PoolName $PoolWriteCacheName
+ceph osd tier cache-mode $PoolWriteCacheName writeback
+
+#More cache pool settings, must be done after tiering.
+ceph osd pool set $PoolMetaName crush_rule $CacheProfile
+ceph osd pool set $PoolWriteCacheName crush_rule $CacheProfile
+
+ceph osd pool set $PoolWriteCacheName hit_set_type bloom
+ceph osd pool set $PoolWriteCacheName target_max_bytes $Cache_target_max_bytes
+ceph osd pool set $PoolWriteCacheName target_max_objects $Cache_target_max_objects
+ceph osd pool set $PoolWriteCacheName cache_target_dirty_ratio $Cache_target_dirty_ratio
+ceph osd pool set $PoolWriteCacheName cache_target_dirty_high_ratio $Cache_target_dirty_high_ratio
+ceph osd pool set $PoolWriteCacheName cache_target_full_ratio $Cache_target_full_ratio
+
+
+#Setup MDS services
+#Setup RGW services
+
+
+#Setup services and set rules:
+
+ceph osd pool set ".rgw.root" crush_rule BasicRep-ByOSD-SSD
+ceph osd pool set ".rgw.root" size $CacheTargetSize
+
+ceph osd pool set "default.rgw.log" crush_rule BasicRep-ByOSD-SSD
+ceph osd pool set "default.rgw.log" size $CacheTargetSize
+
+ceph osd pool set "default.rgw.control" crush_rule BasicRep-ByOSD-SSD
+ceph osd pool set "default.rgw.control" size $CacheTargetSize
+
+ceph osd pool set "default.rgw.meta" crush_rule BasicRep-ByOSD-SSD
+ceph osd pool set "default.rgw.meta" size $CacheTargetSize
+
+ceph osd pool set "default.rgw.log" crush_rule BasicRep-ByOSD
+
+
+ceph fs new $CephFSName $PoolMetaName $PoolName --force
+
+
+#Now, lets add our ACTUAL data pool:
+
+PoolName=$CephFSName-Data-Migration
+#PoolMetaName=$CephFSName-Meta-Migration
+PoolWriteCacheName=$CephFSName-WriteCache-Migration
+
+
+PoolName=$CephFSName-Data-Migration2
+#PoolMetaName=$CephFSName-Meta-Migration2
+PoolWriteCacheName=$CephFSName-WriteCache-Migration2
+
+StorageProfile=Erasure-D3F2
+
+
+#Data Pool
+ceph osd pool create $PoolName erasure $StorageProfile
+ceph osd pool set $PoolName compression_algorithm $CompressionAlgorithm
+ceph osd pool set $PoolName compression_mode $CompressionMode
+ceph osd pool set $PoolName compression_required_ratio $CompressionRequired
+#ceph osd pool set $PoolNare compression_min_blob_size 0
+
+#Meta Pool
+#ceph osd pool create $PoolMetaName replication $StorageProfile
+#ceph osd pool create $PoolMetaName $CacheProfile
+#ceph osd pool set $PoolMetaName min_size $CacheMinSize
+#ceph osd pool set $PoolMetaName size $CacheTargetSize
+
+
+#Cache Pool
+#ceph osd pool set $PoolWriteCacheName cache_min_evict_age $Cache_min_evict_age
+#ceph osd pool set $PoolWriteCacheName cache_target_dirty_ratio $Cache_target_dirty_ratio
+
+ceph osd pool create $PoolWriteCacheName $CacheProfile
+ceph osd pool set $PoolWriteCacheName min_size $CacheMinSize
+ceph osd pool set $PoolWriteCacheName size $CacheTargetSize
+ceph osd pool set-quota $PoolWriteCacheName max_bytes $Cache_max_bytes
+
+#Create tiers
+ceph osd tier add $PoolName $PoolWriteCacheName
+ceph osd tier set-overlay $PoolName $PoolWriteCacheName
+ceph osd tier cache-mode $PoolWriteCacheName writeback
+
+#More cache pool settings, must be done after tiering.
+#ceph osd pool set $PoolMetaName crush_rule $CacheProfile
+ceph osd pool set $PoolWriteCacheName crush_rule $CacheProfile
+
+ceph osd pool set $PoolWriteCacheName hit_set_type bloom
+ceph osd pool set $PoolWriteCacheName target_max_bytes $Cache_target_max_bytes
+ceph osd pool set $PoolWriteCacheName target_max_objects $Cache_target_max_objects
+ceph osd pool set $PoolWriteCacheName cache_target_dirty_ratio $Cache_target_dirty_ratio
+ceph osd pool set $PoolWriteCacheName cache_target_dirty_high_ratio $Cache_target_dirty_high_ratio
+ceph osd pool set $PoolWriteCacheName cache_target_full_ratio $Cache_target_full_ratio
+
+#Add the new pools to the FS
+ceph fs add_data_pool $CephFSName $PoolName
+
+
+#Set the data pool flag in the file system.
+####  Mount the volume, OUTSIDE of the shell!!!  ####
+sudo mkdir -p /CephFS
+cat /etc/ceph/ceph.client.admin.keyring | grep key | cut -d ' ' -f 3 > /root/client.admin
+mount -t ceph 192.168.10.51:6789:/ /CephFS -o name=admin,secretfile=/root/client.admin --verbose
+
+#THIS VALUE WILL NOT BE SET!!!  Re-set it here:
+CephFSName=CephFS
+PoolName=$CephFSName-Data-Migration
+#https://docs.ceph.com/en/quincy/cephfs/file-layouts/
+setfattr -n ceph.dir.layout.pool -v $PoolName /CephFS
+#### Go back to the shell.
+
+#Remove OLD pool from CephFS (must be zeros in rados df):
+#ceph config set mon mon_allow_pool_delete true
+#ceph osd tier cache-mode CephFS-WriteCache-Migration readproxy
+#rados -p CephFS-WriteCache-Migration cache-flush-evict-all
+#ceph fs rm_data_pool CephFS CephFS-Meta-Migration
+#ceph fs rm_data_pool CephFS CephFS-Data-Migration
+#ceph osd pool set CephFS-Data-Migration allow_ec_overwrites true
+#ceph osd tier remove-overlay CephFS-WriteCache-Migration
+#ceph osd tier remove-overlay CephFS-Data-Migration
+#ceph osd tier remove CephFS-Data-Migration CephFS-WriteCache-Migration
+#ceph osd pool delete CephFS-WriteCache-Migration CephFS-WriteCache-Migration --yes-i-really-really-mean-it
+#ceph osd pool delete CephFS-Data-Migration CephFS-Data-Migration --yes-i-really-really-mean-it
+#ceph osd pool delete CephFS-Meta-Migration CephFS-Meta-Migration --yes-i-really-really-mean-it
+
+
+#Mount on another host:
+apt install -y ceph-fuse ceph-common
+
+sudo mkdir -p /ceph/MigrationFS
+#mount.ceph MigrationFS@532311d0-1431-11ed-b4bc-7fbe1320c488.fs_name=/ /ceph/MigrationFS -o mon_addr=127.0.0.1
+
+
+#Key only from: /etc/ceph/ceph.client.admin.keyring
+#KEY=`cat /etc/ceph/ceph.client.admin.keyring | grep key | cut -d ' ' -f 3`
+
+mount -t ceph 192.168.10.210:6789:/ /ceph/MigrationFS -o name=admin,secretfile=/root/client.admin --verbose
+#sudo mount -t ceph 127.0.0.1:6789:/ /ceph/$CephFSName -o name=admin,secret=$KEY
+
+
+
+#Mount RBD
+rbd map foo --name client.admin [-m {mon-IP}] [-k /path/to/ceph.client.admin.keyring] [-p {pool-name}]
+#Need ceph.conf, keyring and the pool name at the end.
+rbd map TestImage --name client.admin -p BlockDevices
+#Unmap: rbd unmap /dev/rbd0
+
+#Benchmark  RBD
+rbd bench --io-type readwrite --io-size 4M --io-threads 1 --io-total 64M Test-HDD-R2 -p Test-HDD-R2
+#--io-type  <read | write | readwrite | rw> [--io-size size-in-B/K/M/G/T] [--io-threads num-ios-in-flight] [--io-total size-in-B/K/M/G/T] [--io-pattern seq | rand] [--rw-mix-read read proportion in readwrite] image-spec
+
+
+
+#Where does a pool live and its stats:
+ceph pg ls-by-pool
+
+#Overall usage information:
+rados df
+
+## Kill a pool
+ceph fs rm MigrationFS
+ceph mds set_max_mds 0
+ceph mds stop 0
+
+
+
+## Migrate pool
+# https://ceph.io/en/news/blog/2015/ceph-pool-migration/
+
+PoolName=Test-HDD-EC
+PoolWriteCacheName=$PoolName-WriteCache
+
+#Allow poor IO mode for transition.
+ceph osd pool set MigrationPool allow_ec_overwrites true
+#Disable futher writes.
+ceph osd tier cache-mode $PoolWriteCacheName readproxy
+
+#Evict current cash:
+rados -p $PoolWriteCacheName cache-flush-evict-all
+
+#Status:
+#rados df
+
+ceph osd tier remove-overlay $PoolWriteCacheName
+ceph osd tier remove-overlay $PoolName
+ceph osd tier remove $PoolName $PoolWriteCacheName
+
+
+#You can now add a new one.
+
+
+
+ceph osd tier add newpool testpool --force-nonempty
+ceph osd tier cache-mode testpool forward
+rados -p testpool cache-flush-evict-all
+ceph osd dump | grep Migration
+
+
+
+ceph osd tier add newpool testpool --force-nonempty
+ceph osd tier cache-mode testpool forward
+
+
+pool 2 'MigrationPool' erasure profile Erasure-D3F2 size 5 min_size 4 crush_rule 3 object_hash rjenkins pg_num 1 pgp_num 1 autoscale_mode on last_change 143 lfor 70/70/70 flags hashpspool tiers 4 read_tier 4 write_tier 4 stripe_width 12288 compression_algorithm zstd compression_mode force compression_required_ratio 0.9 application cephfs
+pool 3 'MigrationPool-Meta' replicated size 2 min_size 2 crush_rule 0 object_hash rjenkins pg_num 1 pgp_num 1 autoscale_mode on last_change 143 flags hashpspool stripe_width 0 pg_autoscale_bias 4 pg_num_min 16 recovery_priority 5 application cephfs
+pool 4 'MigrationPool-WriteCache' replicated size 2 min_size 2 crush_rule 0 object_hash rjenkins pg_num 1 pgp_num 1 autoscale_mode on last_change 146 lfor 70/70/70 flags hashpspool,full,incomplete_clones,full_quota max_bytes 42949672960 tier_of 2 cache_mode writeback stripe_width 0 application cephfs
+
+
+
+
+
+
+
+
+
+Old:
+
+
+
+
+CacheProfile=BasicRep-ByOSD-SSD
+CacheTargetSize=2
+CacheMinSize=2
+Cache_max_bytes=34359738368              #32GBs
+Cache_target_max_bytes=838860800         #800MBs
+Cache_target_max_objects=200             #800MBs
+
+Cache_max_bytes=42949672960                #40GB
+Cache_target_max_bytes=5368709120     #5GB
+Cache_target_max_objects=1280               #5GB
+
+Cache_target_dirty_ratio=0.2
+Cache_target_dirty_high_ratio=0.6
+Cache_target_full_ratio=0.8
+Cache_min_flush_age=3000
+Cache_min_evict_age=3000
+
+CompressionMode=force
+#none, passive, aggressive, force
+
+CompressionAlgorithm=zstd
+#lz4, snappy, zlib, zstd
+
+CompressionRequired=.90
+#
+
+#Error ERANGE:  pg_num 320 size 6 would mean 2216 total pgs, which exceeds max 1800 (mon_max_pg_per_osd 200 * num_in_osds 9)
+
+#Data Pool
+ceph osd pool create $PoolName $PGsData $PGsData erasure $StorageProfile
+ceph osd pool set $PoolName compression_algorithm $CompressionAlgorithm
+ceph osd pool set $PoolName compression_mode $CompressionMode
+ceph osd pool set $PoolName compression_required_ratio $CompressionRequired
+#ceph osd pool set $PoolNare compression_min_blob_size 0
+
+#Meta Pool
+ceph osd pool create $PoolMetaName $PGsMeta $PGsMeta $CacheProfile
+ceph osd pool set $PoolMetaName size $CacheTargetSize
+ceph osd pool set $PoolMetaName min_size $CacheMinSize
+
+
+#Cache Pool
+ceph osd pool set $PoolWriteCacheName cache_min_evict_age $Cache_min_evict_age
+ceph osd pool set $PoolWriteCacheName cache_target_dirty_ratio $Cache_target_dirty_ratio
+
+ceph osd pool create $PoolWriteCacheName $PGsCacssdhe $PGsCache $CacheProfile
+ceph osd pool set $PoolWriteCacheName size $CacheTargetSize
+ceph osd pool set $PoolWriteCacheName min_size $CacheMinSize
+ceph osd pool set-quota $PoolWriteCacheName max_bytes $Cache_max_bytes
+
+#Create tiers
+ceph osd tier add $PoolName $PoolWriteCacheName
+ceph osd tier set-overlay $PoolName $PoolWriteCacheName
+ceph osd tier cache-mode $PoolWriteCacheName writeback
+
+#More cache pool settings, must be done after tiering.
+ceph osd pool set $PoolMetaName crush_rule $CacheProfile
+ceph osd pool set $PoolWriteCacheName crush_rule $CacheProfile
+
+ceph osd pool set $PoolWriteCacheName hit_set_type bloom
+ceph osd pool set $PoolWriteCacheName target_max_bytes $Cache_target_max_bytes
+ceph osd pool set $PoolWriteCacheName target_max_objects $Cache_target_max_objects
+ceph osd pool set $PoolWriteCacheName cache_target_dirty_ratio $Cache_target_dirty_ratio
+ceph osd pool set $PoolWriteCacheName cache_target_dirty_high_ratio $Cache_target_dirty_high_ratio
+ceph osd pool set $PoolWriteCacheName cache_target_full_ratio $Cache_target_full_ratio
+
+ceph osd pool set $PoolWriteCacheName cache_min_flush_age $Cache_min_flush_age
+ceph osd pool set $PoolWriteCacheName cache_min_evict_age $Cache_min_evict_age
+ceph osd pool set $PoolWriteCacheName cache_target_dirty_ratio $Cache_target_dirty_ratio
+
+sudo mkdir -p /ceph/$CephFSNamessd
+
+ceph fs new $CephFSName $PoolMetaName $PoolName
+
+#KEY=`cat /etc/ceph/ceph.client.admin.keyring | grep key | cut -d ' ' -f 3`
+#sudo mount -t ceph 127.0.0.1:6789:/ /ceph/$CephFSName -o name=admin,secret=$KEY
+
+#Start MDS Servers.
+
+ceph-fuse -n client.admin --keyring=/etc/ceph/ceph.client.admin.keyring /ceph/$CephFSName/  --client_mds_namespace $CephFSName
+
+%%%%%%%%%%%
