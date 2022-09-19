@@ -1,0 +1,28 @@
+#!/bin/bash
+rados df | grep -v total_
+
+ceph osd df plain | grep -v 'TOTAL\|MIN\/MAX' | awk '{$1=$1};1' | tr -s ' ' | \
+  sed -e 's/RAW USE/RAW-USE/g' | \
+  sed -e 's/ B/-B/g' | \
+  sed -e 's/ KiB/-KiB/g' | \
+  sed -e 's/ MiB/-MiB/g' | \
+  sed -e 's/ GiB/-GiB/g' | \
+  sed -e 's/ TiB/-TiB/g' | \
+  sed -e 's/ PiB/-PiB/g' | \
+  sort -rhk 12 | \
+  column -t | \
+  sed -e 's/RAW-USE/RAW USE/g' | \
+  sed -e 's/-B/ B/g' | \
+  sed -e 's/-KiB/ KiB/g' | \
+  sed -e 's/-MiB/ MiB/g' | \
+  sed -e 's/-GiB/ GiB/g' | \
+  sed -e 's/-TiB/ TiB/g' | \
+  sed -e 's/-PiB/ PiB/g' > /dev/shm/WatchCeph.tmp
+
+grep OMAP /dev/shm/WatchCeph.tmp
+grep ssd /dev/shm/WatchCeph.tmp | head -n 4
+echo ""
+grep OMAP /dev/shm/WatchCeph.tmp
+grep hdd /dev/shm/WatchCeph.tmp | head -n 4
+echo ""
+ceph -s
