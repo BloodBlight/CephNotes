@@ -1,0 +1,2 @@
+#Set max file size to 16TBs, up from the default of 1TB
+ceph fs set CephFS max_file_size 1099511627776
