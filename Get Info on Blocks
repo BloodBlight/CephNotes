@@ -1,0 +1,7 @@
+#Source: https://lists.ceph.io/hyperkitty/list/ceph-users@ceph.io/thread/SLW6ZHGNPMZKBWJLSB2HVLXIHDGOTM4S/
+
+#Find the blocks
+rados --pool CephFS-Data ls
+
+#Replace the last part of the block ID with 000's and:
+rados --pool CephFS-Data getxattr 10014bb9b3a.00000000 parent | ceph-dencoder type inode_backtrace_t import - decode dump_json
