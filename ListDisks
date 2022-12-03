@@ -1,0 +1,19 @@
+#!/bin/bash
+if [ "$1" == "-d" ]; then
+  fdisk -l | grep Disk | sort | grep --color=auto '\/sd\|\/nvm' | while read line ; do
+    Device=`echo $line | cut -d ' ' -f 2 | cut -d ':' -f 1`
+    if [[ $Device == *nvme* ]]; then
+      Mode="NVMe"
+    else
+      ID_PATH=`udevadm info --query=all -n $Device | grep 'ID_PATH='`
+      echo $ID_PATH | grep -i USB &> /dev/null && Mode="USB"
+      echo $ID_PATH | grep -i ATA &> /dev/null && Mode="ATA"
+      echo $ID_PATH | grep -i SAS &> /dev/null && Mode="SAS"
+    fi
+    SerialNumber=`smartctl -a $Device | grep -i 'Serial Number' | tr -s ' ' | rev | cut -d ' ' -f 1 | rev`
+    DeviceModel=`smartctl -a $Device | grep -i 'Device Model\|Model Number\|product:' | tr -s ' ' | rev | cut -d ':' -f 1 | rev`
+    echo "$line, Model: $DeviceModel, Serial: $SerialNumber, Mode: $Mode" | tr -s ' '
+  done
+else
+  fdisk -l | grep Disk | sort | grep --color=auto '\/sd\|\/nvm'
+fi
