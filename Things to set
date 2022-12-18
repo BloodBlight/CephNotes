@@ -2,3 +2,9 @@
 #Default: ceph fs set CephFS max_file_size 1099511627776
 ceph fs set CephFS max_file_size 17592186044416
 ceph fs set CephFS allow_new_snaps true
+
+
+#https://access.redhat.com/solutions/2981361
+#Top priority recovery
+# ceph osd pool set default.rgw.buckets.index recovery_priority 5
+# ceph osd pool set default.rgw.buckets.index recovery_op_priority 5
