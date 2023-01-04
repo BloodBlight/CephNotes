@@ -8,3 +8,9 @@ ceph fs set CephFS allow_new_snaps true
 #Top priority recovery
 # ceph osd pool set default.rgw.buckets.index recovery_priority 5
 # ceph osd pool set default.rgw.buckets.index recovery_op_priority 5
+
+
+#Docker, not ceph, but:
+# To allow LB from docker images:
+# - Add net.ipv4.ip_nonlocal_bind=1 to the end of the /etc/sysctl.conf file and force a reload of the file with the sudo sysctl -p command.
+# - Source: https://serverfault.com/questions/777212/how-to-use-docker-with-haproxykeepalived
