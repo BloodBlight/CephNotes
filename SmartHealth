@@ -1,0 +1,98 @@
+#!/bin/bash
+
+# Install pre-reqs if needed.install the smartctl package first! (apt-get install smartct
+Installed=`apt list smartmontools 2>/dev/null | grep smartmontools | grep installed | wc | tr -s " " | cut -d ' ' -f 2`
+if [[ "$Installed" == "0" ]]; then
+  apt install -y smartmontools &>/dev/null
+fi
+
+Installed=`apt list mosquitto-clients 2>/dev/null | grep mosquitto-clients | grep installed | wc | tr -s " " | cut -d ' ' -f 2`
+if [[ "$Installed" == "0" ]]; then
+  apt install -y mosquitto-clients &>/dev/null
+fi
+
+
+HostName=`hostname`
+
+if [[ "$@" == "-j" ]]; then
+  Header='{"msg": {"payload": {"host": "'
+  Header+=$HostName
+  Header+='", "type": "smartct", "drives": ['
+  PreMessage='{"path": "'
+  MidMessage='","status": "'
+  PostMessage='"}'
+  InterDrive=','
+  Mid='],"status": "'
+  Closing='"}}}\n'
+else
+  Header="######## CHECKING ########\n"
+  PreMessage=""
+  MidMessage=" "
+  PostMessage="\n"
+  InterDrive=''
+  Mid="#####################\nOverall Health: "
+  Closing="\n#####################\n"
+fi
+
+Status="OK"
+
+if sudo true
+then
+   true
+else
+   echo 'Root privileges required'
+   exit 1
+fi
+
+printf "$Header"
+
+FirstDrive=1
+
+for drive in $(smartctl --scan | cut -d ' ' -f 1); do
+  printf "$Line"
+  if [[ ! -e $drive ]]; then continue ; fi
+  Line="$PreMessage$drive$MidMessage"
+  smart=$(
+    sudo smartctl -H $drive 2>/dev/null |
+    grep '^SMART overall\|^SMART Health Status' |
+    rev | cut -d ' ' -f1 | rev
+  )
+  [[ "$smart" == "" ]] && smart='unavailable'
+
+  if [[ "$smart" != "OK" ]] && [[ "$smart" != "PASSED" ]]; then
+    Status="ERROR"
+    Line+="ERROR$PostMessage$InterDrive"
+  else
+    #Count DOWN endurence tests
+    Life=`sudo smartctl -a $drive | grep -i 'remain\|left' | grep -i 'percent\|life' | grep -vi hours | rev | cut -d ' ' -f 1 | rev`
+    if [ "$Life" != "" ]; then
+      if [ "$Life" -le "10" ]; then
+        Status="ERROR"
+        smart="WARN - Life: $Life%%"
+      else
+        smart="OK - Life: $Life%%"
+      fi
+    else
+      #Count UP endurence tests
+      Life=`sudo smartctl -a $drive | grep -i 'Percentage' | grep -i 'endurance\|Used' | grep -vi hours | rev | cut -d ' ' -f 1 | rev | cut -d '%' -f 1`
+      if [ "$Life" != "" ]; then
+        let Life=100-$Life
+        if [ "$Life" -le "10" ]; then
+          Status="ERROR"
+          smart="WARN - Life: $Life%%"
+        else
+          smart="OK - Life: $Life%%"
+        fi
+      else
+        smart="OK"
+      fi
+    fi
+    Line+="$smart$PostMessage$InterDrive"
+  fi
+done
+
+if [[ "$InterDrive" != "" ]]; then
+  Line=${Line::-${#InterDrive}}
+fi
+
+printf "$Line$Mid$Status$Closing"
