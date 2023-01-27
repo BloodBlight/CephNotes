@@ -6,9 +6,9 @@ sudo fdisk -l | grep Disk | sort | grep '\/sd\|\/nvm' | while read line; do
     Mode="NVMe"
   else
     ID_PATH=$(echo "$driveInfo" | grep 'ID_PATH=')
-    echo $ID_PATH | grep -i USB &>/dev/null && Mode="USB"
-    echo $ID_PATH | grep -i ATA &>/dev/null && Mode="ATA"
-    echo $ID_PATH | grep -i SAS &>/dev/null && Mode="SAS"
+    echo $ID_PATH | grep -q -i USB && Mode="USB"
+    echo $ID_PATH | grep -q -i ATA && Mode="ATA"
+    echo $ID_PATH | grep -q -i SAS && Mode="SAS"
   fi
 
   deviceName=$(echo $Device | cut -c 6-)
