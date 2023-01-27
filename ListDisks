@@ -14,7 +14,7 @@ sudo fdisk -l | grep Disk | sort | grep '\/sd\|\/nvm' | while read line; do
   deviceName=$(echo $Device | cut -c 6-)
   Rotational=$(cat /sys/block/$deviceName/queue/rotational)
   [[ "$Rotational" == "0" && "$deviceName" == *nvme* ]] && Type='NVMe'
-  [[ "$Rotational" == "0" ]] && Type='SSD'
+  [[ "$Rotational" == "0" && "$deviceName" == *sd* ]] && Type='SSD'
   [[ "$Rotational" == "1" ]] && Type='HDD'
 
   ID_MODEL=$(echo "$driveInfo" | grep 'ID_MODEL=' | sed 's\[\]x20\ \g' | cut -d '=' -f 2)
