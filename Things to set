@@ -1,3 +1,14 @@
+## FIRST ##  This should be done BEFORE the installation of cephadm!!!
+#Setup docker log rotation:
+nano /etc/docker/daemon.json
+{
+  "log-driver": "json-file",
+  "log-opts": {
+    "max-size": "1g",
+    "max-file": "3" 
+  }
+}
+
 #Set max file size to 16TBs, up from the default of 1TB
 #Default: ceph fs set CephFS max_file_size 1099511627776
 ceph fs set CephFS max_file_size 17592186044416
@@ -14,3 +25,4 @@ ceph fs set CephFS allow_new_snaps true
 # To allow LB from docker images:
 # - Add net.ipv4.ip_nonlocal_bind=1 to the end of the /etc/sysctl.conf file and force a reload of the file with the sudo sysctl -p command.
 # - Source: https://serverfault.com/questions/777212/how-to-use-docker-with-haproxykeepalived
+
