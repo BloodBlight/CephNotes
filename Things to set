@@ -9,6 +9,15 @@ nano /etc/docker/daemon.json
   }
 }
 
+
+## Also, as an "even better" option, tell cephadm to use an rsyslog server:
+You can pass the Docker logging configuration options to the containers deployed by cephadm by setting the CEPH_CONTAINER_EXTRA_ARGS environment variable. For example, you can set it like this:
+
+export CEPH_CONTAINER_EXTRA_ARGS="--log-driver=syslog --log-opt syslog-address=tcp://syslog-server:514"
+This will configure the containers to use remote syslog on a server named syslog-server at port 514. You can replace these values with the IP address and port number of your remote syslog server.
+
+
+
 #Set max file size to 16TBs, up from the default of 1TB
 #Default: ceph fs set CephFS max_file_size 1099511627776
 ceph fs set CephFS max_file_size 17592186044416
