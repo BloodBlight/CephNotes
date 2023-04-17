@@ -1,0 +1,55 @@
+#!!!WARNING!!!
+# These are just my notes, and or spesific to my setup...
+# This is also now well tested.
+# See official docs:
+# https://access.redhat.com/solutions/2139301
+
+#If you are on proxmox, or not using "hyperconverged" nodes, you can probably skip this:
+#Stop all non-ceph dockers
+# - Exclude LBs
+# - Exclude DNS
+
+
+#Stage 2:
+#Get Ceph clients:
+ceph tell mds.0 client ls > /dev/shm/tmp.CephClients 2> /dev/null
+
+#Look at this output and make sure you can tolerate kicking the clients!
+cat /dev/shm/tmp.CephClients
+
+#Try to umount all ceph clients.
+#Clients=`cat /dev/shm/tmp.CephClients | grep '"hostname":' | cut -d '"' -f 4`
+
+#Might re-run the 'ceph tell mds.0 client ls' command to see how it looks, but we will need to kick and stuck clients:
+#Evict all other clients:
+#ClientIDs=`cat /dev/shm/tmp.CephClients | grep '"id":' | tr -s ' ' | cut -d ' ' -f 3 | cut -d ',' -f 1`
+#For each:
+#ceph tell mds.0 client evict id=$ClientID
+#ceph tell mds.0 client evict client_metadata.=$ClientID
+
+
+
+#ceph osd set noout
+#ceph osd set norecover 
+#ceph osd set norebalance
+#ceph osd set nobackfill
+#ceph osd set nodown
+#ceph osd set pause
+
+#You SHOULD be safe to shutdown now....
+
+
+#Restart time.
+#WAIT!!!  Really, like watch ceph -s, and wait till it stops changing, THEN wait 5 more minutes.  15 If you have the time!  No joke, this is an issue!
+
+#ceph osd unset norecover 
+#WAIT!!!  Watch 'watch ceph -s', and wait till it stops changing
+#ceph osd unset nobackfill
+#WAIT!!!  Watch 'watch ceph -s', and wait till it stops changing
+
+#Now we can really start things up.
+#ceph osd unset noout
+#ceph osd unset norebalance
+#ceph osd unset nodown
+#ceph osd unset pause
+
