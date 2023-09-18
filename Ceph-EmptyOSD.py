@@ -1,9 +1,17 @@
 #!/usr/bin/env python3
+#python3 Ceph-EmptyOSD.py -EmptyOSDs=1 -MaxThreads=8 -DontTargetSourceHosts
+
 import sys
 import json;
 import subprocess;
 import time;
 import argparse;
+
+from os import system, name
+from datetime import datetime
+ 
+# import sleep to show output for some time period
+from time import sleep
 
 OSDToEmpty = -1;
 
@@ -29,16 +37,20 @@ Usage:
 		Note: This feature is usefull if you want don't want data sent to an OSD, but also don't want to empty it for some reason...
 	-MaxThreads=#
 		Default is 4, up to 8 seems to be safe.  Your millage may very!
-	-ShowStatus
-		Shows details on what PGs are being remapped, and how far along they are.
-		Note: Must also have Ceph-GetPGReplicationStatus.py script in the same folder!
-		Future: I hope to add time estimations to this one day. 
 Examples:
 
 pythong3 Ceph-EmptyOSD.py 
 
 """
 
+def clear():
+     # for windows
+    if name == 'nt':
+        _ = system('cls')
+ 
+    # for mac and linux(here, os.name is 'posix')
+    else:
+        _ = system('clear')
 
 def RemoveCommon(array1, array2):
 	#Removes and items from arr1 that are in arr2 and returns it as a new array.
@@ -135,15 +147,18 @@ def FindBusyTargets(pg_map):
 	return busytargets;
 
 
-def FindPGToMove(pg_map, OSDToEmpty):
+def FindPGToMove(pg_map, RemmappingPGs, OSDToEmpty):
 	#Who is already recieving, so we don't send too much!
 	#We are needing to stay here (all in one function) to optimize the parsing of pg_map.  No need to burn the poor CPU up....
 	for pg in pg_map['pg_stats']:
 		up = pg['up'];
-		if pg['state'].find('remapped') == -1:
+		pgid = pg['pgid']
+		if pgid not in RemmappingPGs:
 			#print("Detected remapping on:", pg['pgid']);
 			if OSDToEmpty in up:
+				RemmappingPGs.append(pgid);
 				return pg;
+	return -1;
 
 
 def FindBestTargets(osd_map, OSDToEmpty, PGToMigrate):
@@ -194,12 +209,15 @@ if len(arguments) == 0:
 #NoTargetsOnHost = True;
 
 #DoNotUseOSDs = [];
-print('########################## ! NOTICE ! ##########################');
-print('# This script can be stopped and restarted at any time.        #');
-print('# DO NOT run multiple copies at once.  Bad things!             #');
-print('################################################################');
-print('');
-print('Loading...');
+Header = """
+########################## ! NOTICE ! ##########################
+# This script can be stopped and restarted at any time.        #
+# DO NOT run multiple copies at once.  Bad things!             #
+################################################################
+"""
+clear();
+print(Header);
+print("Loading...");
 # Build out what we want to do.
 osd_map = GetOSDMap();
 osd_map = GetOSDMap();
@@ -231,12 +249,16 @@ for Host in args.EmptyHosts:
 
 OSDsToEmpty = list(set(sorted(OSDsToEmpty)));
 DoNotUseOSDs = list(set(sorted(DoNotUseOSDs)));
-print('');
-print('##########################  The Plan  ##########################');
-print('Will empty these OSDs:', OSDsToEmpty);
-print('Will NOT use these OSDs:', DoNotUseOSDs);
-print('################################################################');
-#time.sleep(3)
+Header += """
+##########################  The Plan  ##########################
+Will empty these OSDs: """
+Header += ', '.join(str(element) for element in OSDsToEmpty)
+Header += "\nWill NOT use these OSDs: "
+Header += ', '.join(str(element) for element in DoNotUseOSDs)
+Header += "\n################################################################\n"
+clear();
+print(Header);
+time.sleep(3)
 
 
 #Exit
@@ -254,49 +276,102 @@ OSDLimitHit = False;
 #Active is our source, up is our target.
 #active+remapped+backfilling
 
-strWarning = '';
+RemmappingPGs = [];
+for pg in pg_map['pg_stats']:
+	if('remapped' in pg['state']):
+		RemmappingPGs.append(pg['pgid']);
+		
+#strWarning = '';
 while PGsLeft > 0:
 	#Main Loop
 	CurrentThreads = GetRemappedCount();
-	
-	Message = 'There are currently ' + str(CurrentThreads) + ' of a maximum of ' + str(args.MaxThreads) + ' remaps running with ' + str(PGsLeft) + ' remaining.';
-	if LastMessage != Message:
-		#sys.stdout.write();
-		#sys.stdout.flush()
-		print(Message);
-		LastMessage = Message;
+	LastCycleStart = datetime.now()
 
-		#Don't try if not needed.
-		if CurrentThreads < args.MaxThreads:
-			RemapsDone = 0;
-			for OSDToEmpty in OSDsToEmpty:
-				#Need to re-check to make sure to stop when needed.
-				if CurrentThreads < args.MaxThreads:
-					# Load updated maps.
-					osd_map = GetOSDMap();
-					pg_map = GetPGMap();
-					osd_tree = GetOSDTree();
-					PGsLeft = OSDPGCount(OSDsToEmpty, osd_map);
-					
-					#Find PG to migrate:
-					PGToMigrate = FindPGToMove(pg_map, OSDToEmpty);
-					
+	clear();
+	print(Header);
+
+	Message = 'There are currently ' + str(CurrentThreads) + ' of a maximum of ' + str(args.MaxThreads) + ' remaps running with ' + str(PGsLeft) + ' remaining.\n';
+	print(Message);
+	
+	
+	#LastCycleStart
+	RemmappingPGs = [];
+	print('Replication state:');
+	for pg in pg_map['pg_stats']:
+		pgid = pg['pgid'];
+		state = pg['state'];
+		if('remapped' in state):	
+			RemmappingPGs.append(pgid);
+			found = 1;
+			stat_sum = pg['stat_sum'];
+			num_bytes = stat_sum['num_bytes'];
+			num_objects = stat_sum['num_objects'];
+			num_objects_misplaced = stat_sum['num_objects_misplaced'];
+			up = pg['up'];
+			acting = pg['acting'];
+			width=len(up)
+
+			if(num_bytes > 0 and num_objects > 0 and num_objects_misplaced > 0):
+				misplaced_ratio = float(num_objects_misplaced) / (float(num_objects) * width);
+				gbs = round(float(num_bytes / IntGB * misplaced_ratio * 10)) / 10;
+				source = [];
+				target = [];
+				hits = 0;
+
+				for x in range(1, width + 1):
+					if(up[x-1] != acting[x-1]):
+						hits += 1;
+						source.append(acting[x-1])
+						target.append(up[x-1])
+				print(' -', pg['pgid'], state, "- Left:", int(num_bytes * misplaced_ratio), "(GBs:", str(gbs * hits) + ') - Pools:', source, '-->', target, '-', round(misplaced_ratio*100,1),'%');
+
+	
+#	if LastMessage != Message:
+#		#sys.stdout.write();
+#		#sys.stdout.flush()
+#		LastMessage = Message;
+
+	#Don't try if not needed.
+	RemapsDone = 0;
+	LastRemapsDone = -1;
+	while CurrentThreads < args.MaxThreads and RemapsDone != LastRemapsDone:
+		for OSDToEmpty in OSDsToEmpty:
+			LastRemapsDone = RemapsDone;
+			#Need to re-check to make sure to stop when needed.
+			if CurrentThreads < args.MaxThreads:
+				# Load updated maps.
+				osd_map = GetOSDMap();
+				pg_map = GetPGMap();
+				osd_tree = GetOSDTree();
+				PGsLeft = OSDPGCount(OSDsToEmpty, osd_map);
+				#JustUsedOSDs = [];
+				
+				#Loops though possible PGs to migrate:
+				print('\nSearching for PGs to move...');
+				PGToMigrate = FindPGToMove(pg_map, RemmappingPGs, OSDToEmpty);
+				while PGToMigrate != -1:
 					# Find all targets sorted by free space:
 					TargetsWithUtilization = FindBestTargets(osd_map, OSDToEmpty, PGToMigrate);
 					
 					#Trimming this down for easy coding later, just don't want to toss the data for usilization yet.  Might be usefull later..
 					targets = [element[0] for element in TargetsWithUtilization];
-
+					#print(targets, 1);
 
 					# Remove all busy migration targets.
 					targets = RemoveCommon(targets, FindBusyTargets(pg_map));
+					#print(targets, 2);
+					
+					#targets = RemoveCommon(targets, JustUsedOSDs);
+					#print(targets, 3);
 					
 					# Remove targets on do-not-use list.
 					targets = RemoveCommon(targets, DoNotUseOSDs);
+					#print(targets, 4);
 					
 					# OPTIONAL: Remove targets on the same host.
 					if args.DontTargetSourceHosts:
 						targets = RemoveCommon(targets, GetOSDsOnSameHost(OSDToEmpty, osd_tree));
+					#print(targets, 5);
 
 					#Can we do it?
 					pgid = PGToMigrate['pgid'];
@@ -308,24 +383,29 @@ while PGsLeft > 0:
 						command += str(OSDToEmpty)
 						command += ' '
 						command += str(targets[0])
-						print(command);
+						print('Executing:', command);
 						subprocess.run(command.split(), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 						RemapsDone += 1;
+						CurrentThreads += 1;
+#						print("JustUsedOSDs 1 ", JustUsedOSDs);
+#						JustUsedOSDs.append(targets[0])
+#						print("JustUsedOSDs 2 ", JustUsedOSDs);
+						# Wait a few seconds, let ceph do its thing.						
+						time.sleep(30)
+						PGToMigrate = -1;
 					else:
-						print('WARNING!  Cannot find a place to move the pg [', pgid, '], but there are active remaps...');
-						print('Will attempt again later...');
-						
-					# Wait a few seconds, let ceph do its thing.
-					time.sleep(5)
-					
-					#I COULD reload this value, rather than just adding 1, but JUST INCASE things aren't going quick enough, I don't want to go into a loop!
-					CurrentThreads += 1;
+						PGToMigrate = FindPGToMove(pg_map, RemmappingPGs, OSDToEmpty);
+				
+		if RemapsDone == 0:
+			if CurrentThreads == 0:
+				print('Could not start any remaps...  Exiting!');
+				sys.exit(1)
+			else:
+				print('WARNING:  Could not start any additional remaps.  No targets avalible.');
 
-			if RemapsDone == 0:
-				if CurrentThreads == 0:
-					print('Could not start any remaps...  Exiting!');
-					sys.exit(1)
+
 	if PGsLeft > 0:
+		print('\nLast Updated:', datetime.now());
 		time.sleep(30)
-		print('Sleeping...');
-
+	
+	
