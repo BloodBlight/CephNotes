@@ -309,7 +309,7 @@ while PGsLeft > 0:
 						command += ' '
 						command += str(targets[0])
 						print(command);
-						#subprocess.run(command.split(), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+						subprocess.run(command.split(), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 						RemapsDone += 1;
 					else:
 						print('WARNING!  Cannot find a place to move the pg [', pgid, '], but there are active remaps...');
