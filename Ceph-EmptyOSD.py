@@ -96,12 +96,17 @@ def GetRemappedCount():
 	return js['osdmap']['num_remapped_pgs'];
 	
 def GetLastRecoveryRate():
-	f = open('/dev/shm/tmp.Status');
-	js = json.load(f);
-	recovering_objects_per_sec = js['pgmap']['recovering_objects_per_sec'];
-	recovering_bytes_per_sec = js['pgmap']['recovering_bytes_per_sec'];
-	mbs = round(float(recovering_bytes_per_sec / IntMB * 10)) / 10;
-	print('Replicating about', recovering_objects_per_sec, 'objects per second at about', mbs, 'MBps:');
+	try:
+		f = open('/dev/shm/tmp.Status');
+		js = json.load(f);
+		pgmap=js['pgmap']
+		recovering_objects_per_sec = pgmap['recovering_objects_per_sec'];
+		recovering_bytes_per_sec = pgmap['recovering_bytes_per_sec'];
+		mbs = round(float(recovering_bytes_per_sec / IntMB * 10)) / 10;
+		print('Replicating about', recovering_objects_per_sec, 'objects per second at about', mbs, 'MBps:');
+	except Exception as e:
+		print('Replication status:');
+
 	return 0
 
 def OSDPGCount(OSDsToEmpty, osd_map):
@@ -285,16 +290,13 @@ Header += "\n################################################################\n"
 clear();
 print(Header);
 
-command = 'ceph osd set norebalance';
+command = 'ceph balancer off';
 print('Executing:', command);
 if args.LogFile:
 	add_log_line(command)
 subprocess.run(command.split(), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 time.sleep(3)
-
-
-
 
 
 
