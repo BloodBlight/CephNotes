@@ -17,6 +17,7 @@ OSDToEmpty = -1;
 
 
 IntGB = 1073741824;
+IntMB = 1048576;
 
 
 arguments = sys.argv[1:]
@@ -88,6 +89,15 @@ def GetRemappedCount():
 	f = open('/dev/shm/tmp.Status');
 	js = json.load(f);
 	return js['osdmap']['num_remapped_pgs'];
+	
+def GetLastRecoveryRate():
+	f = open('/dev/shm/tmp.Status');
+	js = json.load(f);
+	recovering_objects_per_sec = js['pgmap']['recovering_objects_per_sec'];
+	recovering_bytes_per_sec = js['pgmap']['recovering_bytes_per_sec'];
+	mbs = round(float(recovering_bytes_per_sec / IntMB * 10)) / 10;
+	print('Replicating about', recovering_objects_per_sec, 'objects per second at about', mbs, 'MBps:');
+	return 0
 
 def OSDPGCount(OSDsToEmpty, osd_map):
 	PGsToMove = 0;
@@ -296,7 +306,7 @@ while PGsLeft > 0:
 	
 	#LastCycleStart
 	RemmappingPGs = [];
-	print('Replication state:');
+	GetLastRecoveryRate()
 	for pg in pg_map['pg_stats']:
 		pgid = pg['pgid'];
 		state = pg['state'];
@@ -312,8 +322,6 @@ while PGsLeft > 0:
 			width=len(up)
 
 			if(num_bytes > 0 and num_objects > 0 and num_objects_misplaced > 0):
-				misplaced_ratio = (float(num_objects_misplaced) / (float(num_objects)));
-				gbs = round(float(num_bytes / IntGB * misplaced_ratio * 10)) / 10;
 				source = [];
 				target = [];
 				hits = 0;
@@ -321,11 +329,14 @@ while PGsLeft > 0:
 				for x in range(1, width + 1):
 					if(up[x-1] != acting[x-1]):
 						hits += 1;
-						source.append(acting[x-1])
-						target.append(up[x-1])
-				print(' -', pg['pgid'], state, "- Left:", int(num_bytes * misplaced_ratio), "(GBs:", str(gbs * hits) + ') - Pools:', source, '-->', target, '-', round(misplaced_ratio*100,1),'%');
+						source.append(acting[x-1]);
+						target.append(up[x-1]);
+						
+				misplaced_ratio = float(num_objects_misplaced) / float(num_objects * hits);
+				gbs = round((float(num_bytes) / float(IntGB))* misplaced_ratio * 10) / float(10);
+				#print(misplaced_ratio,gbs,num_objects_misplaced,num_objects)
+				print(' -', pg['pgid'], state, "- Left:", int(num_bytes * misplaced_ratio), "(GBs:", str(gbs * hits) + ') - Pools:', source, '-->', target, '-', round(100-misplaced_ratio*100,1),'% Complete');
 
-	
 #	if LastMessage != Message:
 #		#sys.stdout.write();
 #		#sys.stdout.flush()
@@ -409,3 +420,4 @@ while PGsLeft > 0:
 		time.sleep(30)
 	
 	
+
