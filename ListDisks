@@ -9,8 +9,10 @@ sudo fdisk -l | grep Disk | sort | grep '\/sd\|\/nvm' | while read line; do
     echo $ID_PATH | grep -q -i USB && Mode="USB"
     echo $ID_PATH | grep -q -i ATA && Mode="ATA"
     echo $ID_PATH | grep -q -i SAS && Mode="SAS"
+    echo $ID_PATH | grep -q -i SCSI && Mode="SCSI"
   fi
-
+  echo $ID_PATH | grep -q -i Virtual && Mode="Virtual-$Mode"
+  
   deviceName=$(echo $Device | cut -c 6-)
   Rotational=$(cat /sys/block/$deviceName/queue/rotational)
   [[ "$Rotational" == "0" && "$deviceName" == *nvme* ]] && Type='NVMe'
