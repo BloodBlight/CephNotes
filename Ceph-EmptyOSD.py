@@ -312,7 +312,7 @@ while PGsLeft > 0:
 			width=len(up)
 
 			if(num_bytes > 0 and num_objects > 0 and num_objects_misplaced > 0):
-				misplaced_ratio = float(num_objects_misplaced) / (float(num_objects) * width);
+				misplaced_ratio = (float(num_objects_misplaced) / (float(num_objects)));
 				gbs = round(float(num_bytes / IntGB * misplaced_ratio * 10)) / 10;
 				source = [];
 				target = [];
