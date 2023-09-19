@@ -6,6 +6,8 @@ import json;
 import subprocess;
 import time;
 import argparse;
+import logging;
+
 
 from os import system, name
 from datetime import datetime
@@ -38,6 +40,9 @@ Usage:
 		Note: This feature is usefull if you want don't want data sent to an OSD, but also don't want to empty it for some reason...
 	-MaxThreads=#
 		Default is 4, up to 8 seems to be safe.  Your millage may very!
+	-LogFile=PATH
+		Create a log file and records all commands executed, with time stamps.
+		NOTE: This will append the the file if it already exists.
 Examples:
 
 pythong3 Ceph-EmptyOSD.py 
@@ -183,6 +188,11 @@ def FindBestTargets(osd_map, OSDToEmpty, PGToMigrate):
 				targets.append([osdid, osd['utilization']]);
 	targets.sort(key=lambda x: x[1])
 	return targets;
+	
+
+def add_log_line(message):
+    logging.info(message)
+
 
 #Parse inputs.
 def parse_osd_ids(osd_ids):
@@ -202,6 +212,7 @@ def parse_arguments():
 	parser.add_argument("-DoNotUseOSDs", type=parse_osd_ids, default=[], metavar="#", help="One or more OSD IDs (as an integer), comma separated.")
 	parser.add_argument("-MaxThreads", type=int, default=4, metavar="#", help="Default is 4, up to 8 seems to be safe.")
 	parser.add_argument("-ShowStatus", action="store_true", help="!NOT IMPLEMENTED! Shows details on what PGs are being remapped, and how far along they are.")
+	parser.add_argument("-LogFile", type=str, metavar="#", help="Path to use as a log file.")
 	return parser.parse_args()
 
 args = parse_arguments()
@@ -210,6 +221,11 @@ if len(arguments) == 0:
 	print(Usage);
 	sys.exit(1)
 	
+	    
+if args.LogFile:
+	logging.basicConfig(filename=args.LogFile, level=logging.INFO, format='%(asctime)s - %(levelname)s: %(message)s')
+	add_log_line("Script started.")
+		
 
 #OSDToEmpty = 1
 
@@ -268,7 +284,18 @@ Header += ', '.join(str(element) for element in DoNotUseOSDs)
 Header += "\n################################################################\n"
 clear();
 print(Header);
+
+command = 'ceph osd set norebalance';
+print('Executing:', command);
+if args.LogFile:
+	add_log_line(command)
+subprocess.run(command.split(), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
 time.sleep(3)
+
+
+
+
 
 
 #Exit
@@ -302,6 +329,7 @@ while PGsLeft > 0:
 
 	Message = 'There are currently ' + str(CurrentThreads) + ' of a maximum of ' + str(args.MaxThreads) + ' remaps running with ' + str(PGsLeft) + ' remaining.\n';
 	print(Message);
+	print('Last Updated:', datetime.now(), '\n');
 	
 	
 	#LastCycleStart
@@ -395,6 +423,8 @@ while PGsLeft > 0:
 						command += ' '
 						command += str(targets[0])
 						print('Executing:', command);
+						if args.LogFile:
+							add_log_line(command)
 						subprocess.run(command.split(), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 						RemapsDone += 1;
 						CurrentThreads += 1;
@@ -416,8 +446,4 @@ while PGsLeft > 0:
 
 
 	if PGsLeft > 0:
-		print('\nLast Updated:', datetime.now());
 		time.sleep(30)
-	
-	
-
