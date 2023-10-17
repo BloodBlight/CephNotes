@@ -1,0 +1,20 @@
+#!/bin/bash
+#Stage 1 - PGs
+
+mkdir -p /root/ceph
+
+while read Pool; do
+  echo "#### Processing pool: [$Pool] ####"
+  ceph osd getmap -o /root/ceph/om
+  osdmaptool /root/ceph/om --upmap /root/ceph/out.txt --upmap-deviation 1 --upmap-max 8 --upmap-pool "$Pool"
+  source /root/ceph/out.txt
+  sleep 3
+done  <<< "$(ceph osd pool ls)"
+
+#Stage 2:
+#osd reweight-by-utilization [<oload:int>] [<max_change:float>] [<max_osds:int>] [--no- reweight OSDs by utilization [overload-percentage-for-consideration, default 120] increasing]
+#ceph osd reweight-by-utilization 102 0.05 10
+
+
+echo "#### Disabling auto balancer... ####"
+ceph balancer off
